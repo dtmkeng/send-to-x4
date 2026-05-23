@@ -1,7 +1,7 @@
 /**
  * X4 Upload via Direct HTTP POST
  * Uses the X4's /edit endpoint directly
- * 
+ *
  * API endpoints discovered:
  * - GET /list?dir=/ - List directory contents
  * - PUT /edit with name="path" - Create folder
@@ -81,7 +81,7 @@ const X4UploadTab = {
 
     /**
      * Check if folder exists using /list endpoint
-     * @param {string} folderName 
+     * @param {string} folderName
      * @returns {Promise<boolean>}
      */
     async folderExists(folderName) {
@@ -113,7 +113,7 @@ const X4UploadTab = {
 
     /**
      * Create a folder using PUT /edit
-     * @param {string} folderName 
+     * @param {string} folderName
      * @returns {Promise<boolean>}
      */
     async createFolder(folderName) {
@@ -145,13 +145,13 @@ const X4UploadTab = {
 
     /**
      * Upload file to specified path
-     * @param {ArrayBuffer} data 
+     * @param {ArrayBuffer} data
      * @param {string} path - Full path including filename (e.g., /send-to-x4/file.epub)
      * @returns {Promise<{success: boolean, error?: string}>}
      */
     async uploadFile(data, path) {
         try {
-            const blob = new Blob([data], { type: 'application/epub+zip' });
+            const blob = new Blob([data], { type: 'application/octet-stream' });
             const formData = new FormData();
 
             // The filename in FormData includes the path

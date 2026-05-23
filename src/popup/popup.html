@@ -30,6 +30,13 @@
           <span class="meta-separator">•</span>
           <span id="article-words" class="meta-words">— words</span>
         </div>
+        <div class="format-row">
+          <label class="format-label" for="send-format">Format</label>
+          <select id="send-format" class="format-select">
+            <option value="epub">EPUB</option>
+            <option value="xtc">XTC (bitmap)</option>
+          </select>
+        </div>
         <div class="button-group">
           <button id="send-btn" class="send-btn primary">
             <span class="btn-icon">📖</span>
@@ -37,7 +44,11 @@
           </button>
           <button id="download-btn" class="send-btn secondary">
             <span class="btn-icon">📥</span>
-            <span class="btn-text">Download</span>
+            <span class="btn-text">EPUB</span>
+          </button>
+          <button id="download-xtc-btn" class="send-btn tertiary">
+            <span class="btn-icon">🖼️</span>
+            <span class="btn-text">XTC</span>
           </button>
         </div>
       </div>
@@ -138,6 +149,10 @@
   </div>
 
   <script src="../utils/settings.js"></script>
+  <script src="../epub/jszip.min.js"></script>
+  <script src="../epub/xtc_builder.js"></script>
+  <script src="../upload/crosspoint_upload.js"></script>
+  <script src="../upload/x4_upload_tab.js"></script>
   <script type="module" src="modules/main.js"></script>
 </body>
 

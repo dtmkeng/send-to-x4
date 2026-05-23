@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8">
+<!--
+  crengine_sandbox.html — Chrome extension sandbox page.
+  Sandbox pages have a relaxed CSP that allows eval/new Function (Emscripten embind).
+  CREngine JS source is sent as a string from the popup on the first RENDER_EPUB message
+  and eval()'d here — this avoids any <script src> CSP issues with the sandbox's null origin.
+-->
+</head>
+<body>
+<script>
+(function () {
+    var PAGE_W = 480, PAGE_H = 800;
+    // Cached across render calls
+    var _M       = null;
+    var _fontPtr = 0;
+    var _fontLen = 0;
+
+    window.addEventListener('message', async function (ev) {
+        var msg = ev.data;
+        if (!msg || msg.type !== 'RENDER_EPUB') return;
+
+        var id = msg.id;
+        try {
+            // ── Init CREngine once (first call carries crengineCode + wasmBinary) ──
+            if (!_M) {
+                if (!msg.crengineCode) throw new Error('crengineCode required on first render call');
+                // Indirect eval → CREngine var lands on global (window) scope.
+                // Sandbox CSP permits eval; this is intentional.
+                (0, eval)(msg.crengineCode); // eslint-disable-line no-eval
+                if (typeof CREngine !== 'function') throw new Error('CREngine not defined after eval');
+
+                if (!msg.wasmBinary) throw new Error('wasmBinary required on first render call');
+                _M = await CREngine({ wasmBinary: msg.wasmBinary });
+
+                if (msg.fontData) {
+                    var fb = new Uint8Array(msg.fontData);
+                    _fontPtr = _M.allocateMemory(fb.length);
+                    _M.HEAPU8.set(fb, _fontPtr);
+                    _fontLen = fb.length;
+                }
+            }
+
+            var M = _M;
+            var renderer = new M.EpubRenderer(PAGE_W, PAGE_H);
+
+            // ── Load EPUB into WASM heap ──
+            var data = new Uint8Array(msg.epubBuffer);
+            var ptr  = M.allocateMemory(data.length);
+            M.HEAPU8.set(data, ptr);
+            try {
+                renderer.loadEpubFromMemory(ptr, data.length);
+            } finally {
+                M.freeMemory(ptr);
+            }
+
+            // ── Apply layout and status bar settings AFTER loading EPUB ──
+            var margin = typeof msg.margin === 'number' ? msg.margin : 16;
+            var fontSize = typeof msg.fontSize === 'number' ? msg.fontSize : 28;
+            var lineHeight = typeof msg.lineHeight === 'number' ? msg.lineHeight : 120;
+            var fontWeight = typeof msg.fontWeight === 'number' ? msg.fontWeight : 400;
+            var textAlign = typeof msg.textAlign === 'number' ? msg.textAlign : 3;
+
+            if (_fontPtr) renderer.registerFontFromMemory(_fontPtr, _fontLen, 'NotoSansThai.ttf');
+            renderer.setMargins(margin, margin, margin, margin);
+            renderer.setFontSize(fontSize);
+            renderer.setInterlineSpace(lineHeight);
+            renderer.setFontWeight(fontWeight);
+            renderer.setTextAlign(textAlign);
+            renderer.setHyphenation(0);
+            if (typeof renderer.configureStatusBar === 'function') {
+                renderer.configureStatusBar(true, true, false, false, false, false, true, true, false);
+            }
+            if (typeof renderer.setShowClock === 'function') {
+                renderer.setShowClock(false);
+            }
+
+            var total     = renderer.getPageCount();
+            var pages     = [];
+            var transfers = [];
+
+            for (var i = 0; i < total; i++) {
+                renderer.goToPage(i);
+                renderer.renderCurrentPage();
+                var fb = renderer.getFrameBuffer();
+                if (!fb || !fb.length) continue;
+                // Copy frame buffer out of WASM heap *before* renderer.delete()
+                var buf = new Uint8Array(fb).slice().buffer;
+                pages.push({ buffer: buf, width: PAGE_W, height: PAGE_H });
+                transfers.push(buf);
+            }
+
+            renderer.delete();
+
+            ev.source.postMessage(
+                { type: 'RENDER_RESULT', id: id, pages: pages },
+                '*',
+                transfers
+            );
+
+        } catch (e) {
+            ev.source.postMessage(
+                { type: 'RENDER_ERROR', id: id, error: e.message || String(e) },
+                '*'
+            );
+        }
+    });
+}());
+</script>
+</body>
+</html>

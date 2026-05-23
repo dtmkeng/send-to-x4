@@ -23,7 +23,7 @@ const EpubTemplates = {
    * @param {Object} metadata - { title, author, date, uuid, coverMediaType }
    */
   contentOpf(metadata) {
-    const { title, author, date, uuid, coverMediaType } = metadata;
+    const { title, author, date, uuid, coverMediaType, lang = 'en', embedFont = false } = metadata;
     const creatorLine = author
       ? `    <dc:creator>${this.escapeXml(author)}</dc:creator>`
       : '';
@@ -48,11 +48,12 @@ ${creatorLine}
 ${dateLine}
 ${coverMeta}
     <dc:identifier id="bookid">urn:uuid:${uuid}</dc:identifier>
-    <dc:language>en</dc:language>
+    <dc:language>${lang}</dc:language>
   </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     <item id="content" href="content.xhtml" media-type="application/xhtml+xml"/>
+${embedFont ? '    <item id="font-notosansthai" href="fonts/NotoSansThai.ttf" media-type="application/vnd.ms-opentype"/>' : ''}
 ${coverItem}
   </manifest>
   <spine toc="ncx">
@@ -92,10 +93,9 @@ ${coverItem}
 
   /**
    * Generate content.xhtml for longpost
-   * @param {Object} data - { title, author, date, body, url }
    */
   contentXhtml(data) {
-    const { title, author, date, body, url } = data;
+    const { title, author, date, body, url, lang = 'en', embedFont = false } = data;
 
     // Build metadata line: @handle • date • Source: url
     const metaParts = [];
@@ -111,15 +111,16 @@ ${coverItem}
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${lang}" lang="${lang}">
 <head>
   <meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8"/>
   <title>${this.escapeXml(title)}</title>
   <style type="text/css">
+    ${embedFont ? '@font-face { font-family: "NotoSansThai"; src: url("fonts/NotoSansThai.ttf"); font-weight: normal; font-style: normal; }' : ''}
     body {
       margin: 1.5em;
       line-height: 1.7;
-      font-family: Georgia, "Times New Roman", serif;
+      font-family: ${embedFont ? '"NotoSansThai", ' : ''}Georgia, "Times New Roman", "Cordia New", "Angsana New", "TH Sarabun New", "Garuda", sans-serif, serif;
     }
     h1 {
       font-size: 1.5em;

@@ -1,6 +1,6 @@
-import { UIManager } from './ui_manager.js';
-import { FileManager } from './file_manager.js';
 import { ArticleManager } from './article_manager.js';
+import { FileManager } from './file_manager.js';
+import { UIManager } from './ui_manager.js';
 
 // Cross-browser compatibility
 const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
@@ -25,6 +25,7 @@ class PopupController {
         this.ui.setupListeners({
             onSend: () => this.handleSend(),
             onDownload: () => this.handleDownload(),
+            onDownloadXtc: () => this.handleDownloadXtc(),
             onSettingsChange: (e) => this.handleSettingsChange(e),
             onIpChange: (e) => this.handleIpChange(e),
             onConnect: () => this.handleConnect(),
@@ -84,7 +85,7 @@ class PopupController {
             if (article) {
                 this.ui.showArticleFound(article);
             } else {
-                // Determine if it was an error or just not found? 
+                // Determine if it was an error or just not found?
                 // ArticleManager returns null on "not found" (e.g. too short).
                 this.ui.showArticleNotFound();
             }
@@ -102,7 +103,7 @@ class PopupController {
             // Initial check doesn't spin the connect button, maybe spins a general loading indicator?
             // Original code: this.elements.deviceLoading...
             // UIManager handles this in showDeviceConnected/Disconnected which hides loading.
-            // But we need to SHOW loading first? UIManager doesn't have a specific showLoading method for device, 
+            // But we need to SHOW loading first? UIManager doesn't have a specific showLoading method for device,
             // but the HTML starts with loading visible.
         }
 
@@ -212,33 +213,61 @@ class PopupController {
         const article = this.articleManager.articleData;
         if (!article) return;
 
+        const format = this.ui.getSelectedFormat();
+
         this.ui.setSendButtonState('sending');
 
         try {
-            // Wrap sendMessage in a timeout promise
-            const sendMessagePromise = browserAPI.runtime.sendMessage({
-                type: 'X4_SEND_ARTICLE',
-                payload: {
-                    kind: 'generic_article',
-                    ...article
-                },
-                settings: {
-                    firmwareType: this.settings.firmwareType,
-                    deviceIp: this.settings.deviceIp
+            let response;
+
+            if (format === 'xtc') {
+                // Build XTC in popup via sandbox iframe, then upload directly
+                // (ArrayBuffer cannot survive chrome.runtime.sendMessage serialization)
+                this.ui.setSendButtonState('sending', 'Rendering...');
+                const xtcBuffer = await XtcBuilder.build(article);
+                const filename  = XtcBuilder.generateFilename(article);
+                this.ui.setSendButtonState('sending', 'Uploading...');
+
+                const isCrosspoint = this.settings.firmwareType === 'crosspoint';
+                const deviceIp     = this.settings.deviceIp;
+                const uploader     = isCrosspoint ? CrossPointUpload : X4UploadTab;
+                if (isCrosspoint) {
+                    CrossPointUpload.setIp(deviceIp);
+                } else if (typeof X4UploadTab.setIp === 'function') {
+                    X4UploadTab.setIp(deviceIp);
                 }
-            });
 
-            // 60s timeout for the whole process (generation + upload)
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Operation timed out (60s)')), 60000);
-            });
+                const uploadTimeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Upload timed out (30s)')), 30000));
+                const uploadResult = await Promise.race([
+                    uploader.uploadEpub(xtcBuffer, filename),
+                    uploadTimeout
+                ]);
 
-            const response = await Promise.race([sendMessagePromise, timeoutPromise]);
+                if (uploadResult && uploadResult.success) {
+                    response = { success: true, message: 'Sent to X4!' };
+                } else {
+                    response = { success: false, error: uploadResult?.error || 'Upload failed' };
+                }
+
+            } else {
+                // EPUB path — service worker builds EPUB and uploads
+                const sendPromise = browserAPI.runtime.sendMessage({
+                    type: 'X4_SEND_ARTICLE',
+                    payload: { kind: 'generic_article', ...article },
+                    settings: {
+                        firmwareType: this.settings.firmwareType,
+                        deviceIp: this.settings.deviceIp
+                    }
+                });
+
+                const timeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Operation timed out (60s)')), 60000));
+                response = await Promise.race([sendPromise, timeout]);
+            }
 
             if (response && response.success) {
                 this.ui.setSendButtonState('success', response.message);
-
-                // Refresh files after delay
                 setTimeout(async () => {
                     const files = await this.fileManager.loadFolderFiles(this.settings);
                     this.ui.showFileList(files, (f, l) => this.handleDelete(f, l));
@@ -275,6 +304,33 @@ class PopupController {
         } catch (error) {
             console.error('[Popup Controller] Download error:', error);
             this.ui.setDownloadButtonState('error', error.message);
+        }
+    }
+
+    async handleDownloadXtc() {
+        const article = this.articleManager.articleData;
+        if (!article) return;
+
+        this.ui.setDownloadXtcButtonState('loading', 'Loading...');
+
+        try {
+            // Phase 1: fetch WASM + font (cached after first call)
+            // Phase 2: CREngine renders EPUB → pages (30–90 s on first call)
+            // Phase 3: dither + encode XTG/XTC
+            this.ui.setDownloadXtcButtonState('converting', 'Rendering...');
+            const xtcBuffer = await XtcBuilder.build(article);
+            const filename  = XtcBuilder.generateFilename(article);
+
+            // Trigger browser download via blob URL
+            const blob = new Blob([xtcBuffer], { type: 'application/octet-stream' });
+            const url  = URL.createObjectURL(blob);
+            await browserAPI.downloads.download({ url, filename, saveAs: false });
+            URL.revokeObjectURL(url);
+
+            this.ui.setDownloadXtcButtonState('success');
+        } catch (error) {
+            console.error('[Popup Controller] XTC download error:', error);
+            this.ui.setDownloadXtcButtonState('error', error.message);
         }
     }
 }

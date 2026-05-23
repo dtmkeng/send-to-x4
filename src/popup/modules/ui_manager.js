@@ -20,6 +20,8 @@ export class UIManager {
             errorMessage: document.getElementById('error-message'),
             sendBtn: document.getElementById('send-btn'),
             downloadBtn: document.getElementById('download-btn'),
+            downloadXtcBtn: document.getElementById('download-xtc-btn'),
+            sendFormatSelect: document.getElementById('send-format'),
             deviceLoading: document.getElementById('device-loading'),
             deviceConnected: document.getElementById('device-connected'),
             deviceDisconnected: document.getElementById('device-disconnected'),
@@ -41,6 +43,7 @@ export class UIManager {
     setupListeners(handlers) {
         if (handlers.onSend) this.elements.sendBtn.addEventListener('click', handlers.onSend);
         if (handlers.onDownload) this.elements.downloadBtn.addEventListener('click', handlers.onDownload);
+        if (handlers.onDownloadXtc) this.elements.downloadXtcBtn.addEventListener('click', handlers.onDownloadXtc);
         if (handlers.onSettingsChange) this.elements.firmwareTypeSelect.addEventListener('change', handlers.onSettingsChange);
         if (handlers.onIpChange) this.elements.deviceIpInput.addEventListener('change', handlers.onIpChange);
         if (handlers.onConnect) this.elements.connectBtn.addEventListener('click', handlers.onConnect);
@@ -120,8 +123,12 @@ export class UIManager {
             this.elements.fileListItems.innerHTML = files
                 .map(f => {
                     const escapedName = f.name.replace(/"/g, '&quot;');
+                    const isXtc = f.name.endsWith('.xtc');
+                    const badge = isXtc
+                        ? '<span class="file-badge xtc-badge">XTC</span>'
+                        : '<span class="file-badge epub-badge">EPUB</span>';
                     return `<li data-filename="${escapedName}">
-                    <span class="file-name" title="${escapedName}">${f.name}</span>
+                    ${badge}<span class="file-name" title="${escapedName}">${f.name}</span>
                     <button class="delete-btn" title="Delete file">🗑️</button>
                 </li>`;
                 })
@@ -167,6 +174,10 @@ export class UIManager {
         };
     }
 
+    getSelectedFormat() {
+        return this.elements.sendFormatSelect?.value || 'epub';
+    }
+
     // --- Button States ---
 
     setConnectButtonState(state) {
@@ -210,7 +221,7 @@ export class UIManager {
             case 'sending':
                 btn.disabled = true;
                 iconSpan.innerHTML = '<div class="btn-spinner"></div>';
-                textSpan.textContent = 'Sending...';
+                textSpan.textContent = message || 'Sending...';
                 break;
 
             case 'success':
@@ -266,7 +277,51 @@ export class UIManager {
             default:
                 btn.disabled = false;
                 iconSpan.textContent = '📥';
-                textSpan.textContent = 'Download';
+                textSpan.textContent = 'EPUB';
+                break;
+        }
+    }
+
+    setDownloadXtcButtonState(state, message = '') {
+        const btn = this.elements.downloadXtcBtn;
+        const iconSpan = btn.querySelector('.btn-icon');
+        const textSpan = btn.querySelector('.btn-text');
+
+        btn.classList.remove('success', 'error');
+
+        switch (state) {
+            case 'loading':
+                btn.disabled = true;
+                iconSpan.innerHTML = '<div class="btn-spinner"></div>';
+                textSpan.textContent = message || 'Loading...';
+                break;
+
+            case 'converting':
+                btn.disabled = true;
+                iconSpan.innerHTML = '<div class="btn-spinner"></div>';
+                textSpan.textContent = message || 'Rendering...';
+                break;
+
+            case 'success':
+                btn.disabled = false;
+                btn.classList.add('success');
+                iconSpan.textContent = '✅';
+                textSpan.textContent = 'Saved!';
+                setTimeout(() => this.setDownloadXtcButtonState('idle'), 2000);
+                break;
+
+            case 'error':
+                btn.disabled = false;
+                btn.classList.add('error');
+                iconSpan.textContent = '❌';
+                textSpan.textContent = message ? message.slice(0, 20) : 'Failed';
+                setTimeout(() => this.setDownloadXtcButtonState('idle'), 4000);
+                break;
+
+            default:
+                btn.disabled = false;
+                iconSpan.textContent = '🖼️';
+                textSpan.textContent = 'XTC';
                 break;
         }
     }

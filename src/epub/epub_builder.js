@@ -38,13 +38,37 @@ const EpubBuilder = {
         }
         */
 
+        // Detect language (default to 'en')
+        let lang = 'en';
+        const containsThai = (text) => /[\u0E00-\u0E7F]/.test(text || '');
+        if (containsThai(article.title) || containsThai(article.body) || containsThai(article.author)) {
+            lang = 'th';
+        } else if (article.lang) {
+            lang = article.lang;
+        }
+
         const metadata = {
             title: article.title,
             author: article.author,
             date: article.date,
             uuid: uuid,
-            coverMediaType
+            coverMediaType,
+            lang,
+            embedFont: false // will be set after font loading attempt
         };
+
+        // Embed Thai font so devices without Thai fonts can render Thai text
+        let fontBuffer = null;
+        try {
+            const fontUrl = (typeof chrome !== 'undefined' && chrome.runtime)
+                ? chrome.runtime.getURL('assets/fonts/NotoSansThai.ttf')
+                : browser.runtime.getURL('assets/fonts/NotoSansThai.ttf');
+            const fontResp = await fetch(fontUrl);
+            fontBuffer = await fontResp.arrayBuffer();
+        } catch (e) {
+            console.warn('[EpubBuilder] Could not load Thai font:', e);
+        }
+        metadata.embedFont = !!fontBuffer;
 
         // Add mimetype file (must be first and uncompressed)
         zip.file('mimetype', EpubTemplates.mimetype, { compression: 'STORE' });
@@ -58,8 +82,13 @@ const EpubBuilder = {
         // Add toc.ncx
         zip.file('OEBPS/toc.ncx', EpubTemplates.tocNcx(metadata));
 
-        // Add content.xhtml (pass full article including url)
-        zip.file('OEBPS/content.xhtml', EpubTemplates.contentXhtml(article));
+        // Add font file if loaded
+        if (fontBuffer) {
+            zip.file('OEBPS/fonts/NotoSansThai.ttf', fontBuffer);
+        }
+
+        // Add content.xhtml (pass full article including url and detected language)
+        zip.file('OEBPS/content.xhtml', EpubTemplates.contentXhtml({ ...article, lang, embedFont: metadata.embedFont }));
 
         // Generate the EPUB as a Blob
         const epubBlob = await zip.generateAsync({
@@ -127,7 +156,7 @@ const EpubBuilder = {
 
     /**
      * Convert Blob to ArrayBuffer for message passing
-     * @param {Blob} blob 
+     * @param {Blob} blob
      * @returns {Promise<ArrayBuffer>}
      */
     async blobToArrayBuffer(blob) {

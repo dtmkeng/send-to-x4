@@ -148,6 +148,36 @@ body {
     color: #3f3f46;
 }
 
+/* Format Selector */
+.format-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.format-label {
+    font-size: 12px;
+    color: #a1a1aa;
+    white-space: nowrap;
+}
+
+.format-select {
+    background: #27272a;
+    border: 1px solid #3f3f46;
+    border-radius: 6px;
+    padding: 4px 8px;
+    color: #e4e4e7;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.format-select:focus {
+    outline: none;
+    border-color: #7c3aed;
+}
+
 /* Button Group */
 .button-group {
     display: flex;
@@ -177,6 +207,10 @@ body {
 
 .send-btn.secondary {
     background: #3f3f46;
+}
+
+.send-btn.tertiary {
+    background: #0e7490;
 }
 
 .send-btn:hover:not(:disabled) {
@@ -357,6 +391,26 @@ body {
     border-bottom: none;
 }
 
+.file-items li .file-badge {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.file-items li .epub-badge {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.file-items li .xtc-badge {
+    background: #dcfce7;
+    color: #15803d;
+}
+
 .file-items li .file-name {
     flex: 1;
     white-space: nowrap;
@@ -365,7 +419,7 @@ body {
 }
 
 .file-items li .file-name::before {
-    content: '📄 ';
+    content: '';
 }
 
 .file-items li .delete-btn {

@@ -38,6 +38,11 @@ browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // Keep channel open for async response
     }
 
+    if (message.type === 'X4_SEND_XTC') {
+        handleSendXtc(message, sender, sendResponse);
+        return true;
+    }
+
     if (message.type === 'X4_DOWNLOAD_ARTICLE') {
         handleDownloadArticle(message.payload, sendResponse);
         return true;
@@ -71,14 +76,18 @@ async function handleFetch(payload) {
     const { url, options } = payload;
     console.log('[X4 SW] Proxy fetch:', url, options?.method || 'GET');
 
-    // Firefox Fallback: Use XMLHttpRequest to bypass potential Mixed Content/Fetch quirks
-    if (typeof XMLHttpRequest !== 'undefined') {
-        console.log('[X4 SW] Using XMLHttpRequest (Firefox compat mode)');
+    // Firefox background page: XMLHttpRequest is available and needed for mixed-content requests.
+    // Chrome service worker: XMLHttpRequest is NOT available; use fetch().
+    // Detect Firefox BG page by checking both XHR and the absence of ServiceWorkerGlobalScope.
+    const isFirefoxBg = typeof XMLHttpRequest !== 'undefined' &&
+                        typeof ServiceWorkerGlobalScope === 'undefined';
+
+    if (isFirefoxBg) {
+        console.log('[X4 SW] Using XMLHttpRequest (Firefox background page)');
         return new Promise((resolve) => {
             const xhr = new XMLHttpRequest();
             xhr.open(options?.method || 'GET', url, true);
 
-            // Set headers
             if (options?.headers) {
                 for (const [key, value] of Object.entries(options.headers)) {
                     xhr.setRequestHeader(key, value);
@@ -87,71 +96,31 @@ async function handleFetch(payload) {
 
             xhr.onload = function () {
                 const success = xhr.status >= 200 && xhr.status < 300;
-                // Parse body logic simplified
                 let data = xhr.responseText;
-                try {
-                    data = JSON.parse(data);
-                } catch (e) {
-                    // Start is not JSON, keep as text
-                }
-
-                resolve({
-                    success: success,
-                    status: xhr.status,
-                    statusText: xhr.statusText,
-                    data: data
-                });
+                try { data = JSON.parse(data); } catch (e) { /* keep as text */ }
+                resolve({ success, status: xhr.status, statusText: xhr.statusText, data });
             };
-
-            xhr.onerror = function () {
-                console.error('[X4 SW] XHR Error');
-                resolve({
-                    success: false,
-                    error: 'Network Request Failed (XHR)'
-                });
-            };
-
-            xhr.ontimeout = function () {
-                resolve({
-                    success: false,
-                    error: 'Timeout'
-                });
-            };
-
-            if (options?.body) {
-                xhr.send(options.body);
-            } else {
-                xhr.send();
-            }
+            xhr.onerror  = () => resolve({ success: false, error: 'Network request failed (XHR)' });
+            xhr.ontimeout = () => resolve({ success: false, error: 'Request timed out (XHR)' });
+            xhr.timeout = 10000;
+            xhr.send(options?.body ?? null);
         });
     }
 
-    // Chrome / Service Worker: Use fetch
+    // Chrome service worker path — use native fetch()
     try {
         const response = await fetch(url, options);
-
-        // We need to read the body to send it back
-        const contentType = response.headers.get('content-type');
+        const contentType = response.headers.get('content-type') || '';
         let data;
-
-        if (contentType && contentType.includes('application/json')) {
+        if (contentType.includes('application/json')) {
             data = await response.json();
         } else {
             data = await response.text();
         }
-
-        return {
-            success: response.ok,
-            status: response.status,
-            statusText: response.statusText,
-            data: data
-        };
+        return { success: response.ok, status: response.status, statusText: response.statusText, data };
     } catch (error) {
         console.error('[X4 SW] Fetch error:', error);
-        return {
-            success: false,
-            error: error.message
-        };
+        return { success: false, error: error.message };
     }
 }
 
@@ -209,6 +178,54 @@ async function logToPopup(message) {
             message: message
         });
     } catch (e) { /* ignore */ }
+}
+
+/**
+ * Handle send XTC request (XTC pre-built in popup, just upload here)
+ */
+async function handleSendXtc(messageData, sender, sendResponse) {
+    const { arrayBuffer, filename } = messageData.payload;
+    const settings = messageData.settings || {};
+    console.log('[X4 SW] Handling send XTC:', filename, arrayBuffer.byteLength, 'bytes');
+
+    try {
+        await logToPopup(`Sending XTC: ${filename}`);
+
+        const isCrosspoint = settings.firmwareType === 'crosspoint';
+        const deviceIp = settings.deviceIp || (isCrosspoint ? '192.168.4.1' : '192.168.3.3');
+        const uploader = isCrosspoint ? CrossPointUpload : X4UploadTab;
+
+        if (isCrosspoint) {
+            CrossPointUpload.setIp(deviceIp);
+        } else if (typeof X4UploadTab.setIp === 'function') {
+            X4UploadTab.setIp(deviceIp);
+        }
+
+        await sendStatusUpdate(sender, 'uploading', 'Sending XTC to X4...');
+        const uploadResult = await uploader.uploadEpub(arrayBuffer, filename);
+
+        if (uploadResult.success) {
+            sendResponse({ success: true, message: 'Sent to X4!' });
+            return;
+        }
+
+        // Fallback: download the XTC file
+        await logToPopup(`Upload failed (${uploadResult.error}), downloading instead.`);
+        await sendStatusUpdate(sender, 'downloading', 'Downloading XTC...');
+        await downloadEpubFallback(arrayBuffer, filename);
+
+        sendResponse({
+            success: true,
+            message: '📥 XTC downloaded',
+            downloadTriggered: true,
+            uploadError: uploadResult.error
+        });
+
+    } catch (error) {
+        await logToPopup(`XTC send error: ${error.message}`);
+        console.error('[X4 SW] XTC send error:', error);
+        sendResponse({ success: false, error: error.message });
+    }
 }
 
 /**
@@ -300,8 +317,8 @@ async function downloadEpubFallback(arrayBuffer, filename) {
     try {
         console.log('[X4 SW] Triggering download fallback...');
 
-        // Detect if we're in Firefox (has 'browser' namespace) or Chrome
-        const isFirefox = typeof browser !== 'undefined' && typeof browser.runtime !== 'undefined';
+        // Detect if we're in Firefox — can't rely on 'browser' namespace since Chrome 121+ also exposes it
+        const isFirefox = navigator.userAgent.includes('Firefox');
         console.log('[X4 SW] Browser detected:', isFirefox ? 'Firefox' : 'Chrome');
 
         let downloadUrl;

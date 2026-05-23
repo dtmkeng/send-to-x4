@@ -154,11 +154,11 @@ const CrossPointUpload = {
      */
     async uploadFile(data, filename, path) {
         try {
-            const blob = new Blob([data], { type: 'application/epub+zip' });
+            const blob = new Blob([data], { type: 'application/octet-stream' });
             const formData = new FormData();
 
             // Create file with just the filename
-            const file = new File([blob], filename, { type: 'application/epub+zip' });
+            const file = new File([blob], filename, { type: 'application/octet-stream' });
             formData.append('file', file);
 
             // Add query parameter for path

@@ -15,8 +15,8 @@ export class FileManager {
 
     /**
      * Proxy fetch through background script to avoid CORS/Mixed Content issues
-     * @param {string} url 
-     * @param {Object} options 
+     * @param {string} url
+     * @param {Object} options
      */
     async bgFetch(url, options = {}) {
         // We cannot pass AbortSignal via message, so we omit it.
@@ -89,7 +89,7 @@ export class FileManager {
 
     /**
      * Load files from the target folder
-     * @param {Object} settings 
+     * @param {Object} settings
      * @param {string} sortOrder 'newest', 'oldest', 'name-asc', 'name-desc'
      * @returns {Promise<Array>}
      */
@@ -105,12 +105,14 @@ export class FileManager {
                 listUrl = `${baseUrl}/api/files?path=/${this.TARGET_FOLDER}`;
                 const response = await this.bgFetch(listUrl);
                 const files = await response.json();
-                epubFiles = files.filter(f => !f.isDirectory && f.name.endsWith('.epub'));
+                epubFiles = files.filter(f => !f.isDirectory &&
+                    (f.name.endsWith('.epub') || f.name.endsWith('.xtc')));
             } else {
                 listUrl = `${baseUrl}/list?dir=/${this.TARGET_FOLDER}/`;
                 const response = await this.bgFetch(listUrl);
                 const files = await response.json();
-                epubFiles = files.filter(f => f.type === 'file' && f.name.endsWith('.epub'));
+                epubFiles = files.filter(f => f.type === 'file' &&
+                    (f.name.endsWith('.epub') || f.name.endsWith('.xtc')));
             }
 
             // Enrich with parsed date for sorting
@@ -161,8 +163,8 @@ export class FileManager {
 
     /**
      * Delete a file from the device
-     * @param {string} filename 
-     * @param {Object} settings 
+     * @param {string} filename
+     * @param {Object} settings
      * @returns {Promise<boolean>}
      */
     async deleteFile(filename, settings) {
